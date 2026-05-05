@@ -1,20 +1,172 @@
 # Calzados Backend API
 
-API REST construida con **Node.js + Express + TypeScript**, lista para conectar con **Supabase** como base de datos y sistema de autenticación.
+API REST en **Node.js + Express + TypeScript** conectada al schema real de Supabase.
 
 ---
 
-## Stack
+## Schema mapeado
 
-| Capa | Tecnología |
+```
+categorias
+  └── subcategorias
+        └── productos
+              ├── imagenes
+              ├── talles
+              └── variantes ──→ colores
+profiles (auth.users)
+```
+
+---
+
+## Instalación rápida
+
+```bash
+npm install
+cp .env.example .env   # completar con credenciales de Supabase
+npm run dev            # hot-reload en http://localhost:3000
+```
+
+---
+
+## Variables de entorno
+
+| Variable | Dónde encontrarla |
 |---|---|
-| Runtime | Node.js 20+ |
-| Framework | Express 4 |
-| Lenguaje | TypeScript 5 |
-| Base de datos | Supabase (PostgreSQL) |
-| Auth | Supabase Auth + JWT propio |
-| Validación | Zod |
-| Seguridad | Helmet, CORS, Rate Limiting |
+| `SUPABASE_URL` | Supabase → Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → service_role |
+| `JWT_SECRET` | Generá con `node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"` |
+| `JWT_EXPIRES_IN` | Ej: `7d`, `24h` |
+| `CORS_ORIGIN` | URL del frontend, ej: `http://localhost:5173` |
+
+---
+
+## Endpoints
+
+### Auth
+```
+POST  /v1/auth/register     { name, email, password }
+POST  /v1/auth/login        { email, password }
+GET   /v1/auth/me           🔒
+POST  /v1/auth/logout       🔒
+```
+
+### Productos
+```
+GET   /v1/products                     Listado con filtros (público)
+GET   /v1/products/destacados          Destacados (público)
+GET   /v1/products/:id                 Por UUID (público)
+GET   /v1/products/codigo/:codigo      Por código (público)
+POST  /v1/products                     Crear     🔒 admin
+PATCH /v1/products/:id                 Actualizar 🔒 admin
+DELETE /v1/products/:id                Soft delete (activo=false) 🔒 admin
+DELETE /v1/products/:id/hard           Borrado físico 🔒 admin
+```
+
+#### Query params de listado
+```
+?categoria=Zapatillas          nombre de categoría (case-insensitive)
+&subcategoria=Running
+&search=nike
+&minPrice=1000&maxPrice=5000
+&sortBy=precio_asc             precio_asc | precio_desc | nombre_asc | destacado
+&destacados=true
+&activos=false                 incluir inactivos (default: solo activos)
+&page=1&perPage=9
+```
+
+#### Body para crear/actualizar
+```json
+{
+  "codigo": "ZAP-001",
+  "nombre": "Air Max Running",
+  "descripcion": "...",
+  "precio": 1500,
+  "precio_anterior": 2000,
+  "subcategoria_id": "uuid-de-la-subcategoria",
+  "activo": true,
+  "destacado": true,
+  "imagenesUrls": [
+    "https://ejemplo.com/img1.jpg",
+    "https://ejemplo.com/img2.jpg"
+  ],
+  "talles": ["38", "39", "40", "41", "42"],
+  "variantes": [
+    { "talle": "40", "color_id": "uuid-del-color" },
+    { "talle": "41", "color_id": "uuid-del-color" }
+  ]
+}
+```
+
+### Catálogo (categorías, subcategorías, colores)
+```
+GET   /v1/catalog/categorias
+GET   /v1/catalog/categorias/:id
+POST  /v1/catalog/categorias          { nombre }  🔒 admin
+PATCH /v1/catalog/categorias/:id      { nombre }  🔒 admin
+DELETE /v1/catalog/categorias/:id               🔒 admin
+
+GET   /v1/catalog/subcategorias       ?categoria_id=uuid
+GET   /v1/catalog/subcategorias/:id
+POST  /v1/catalog/subcategorias       { nombre, categoria_id }  🔒 admin
+PATCH /v1/catalog/subcategorias/:id                              🔒 admin
+DELETE /v1/catalog/subcategorias/:id                            🔒 admin
+
+GET   /v1/catalog/colores
+GET   /v1/catalog/colores/:id
+POST  /v1/catalog/colores             { nombre, codigo_hex? }  🔒 admin
+PATCH /v1/catalog/colores/:id                                   🔒 admin
+DELETE /v1/catalog/colores/:id                                 🔒 admin
+```
+
+---
+
+## Shape que devuelve la API al frontend
+
+Cada producto se devuelve normalizado, compatible con el type `Product` del frontend Vue:
+
+```json
+{
+  "id": "uuid",
+  "codigo": "ZAP-001",
+  "name": "Air Max Running",
+  "price": 1500,
+  "originalPrice": 2000,
+  "image": "https://...",
+  "images": ["https://...", "https://..."],
+  "category": "Zapatillas",
+  "subcategory": "Running",
+  "sizes": ["38", "39", "40"],
+  "colors": [{ "name": "Rojo", "hex": "#ff0000" }],
+  "description": "...",
+  "featured": true,
+  "inStock": true,
+  "slug": "air-max-running-zap-001"
+}
+```
+
+---
+
+## Conectar el frontend Vue
+
+En `src/api/client.ts` del proyecto Vue:
+
+```typescript
+const USE_MOCK = false
+const BASE_URL = 'http://localhost:3000/v1'
+```
+
+---
+
+## Asignar rol admin
+
+En el SQL Editor de Supabase:
+
+```sql
+-- Supabase guarda el rol en user_metadata
+update auth.users
+set raw_user_meta_data = raw_user_meta_data || '{"role": "admin"}'::jsonb
+where email = 'tu-email@ejemplo.com';
+```
 
 ---
 
@@ -22,163 +174,20 @@ API REST construida con **Node.js + Express + TypeScript**, lista para conectar 
 
 ```
 src/
-├── index.ts                  # Entry point Express
-├── db/
-│   └── supabase.ts           # Cliente Supabase singleton
-├── middlewares/
-│   └── auth.ts               # requireAuth, requireAdmin, errorHandler
-├── routes/
-│   ├── auth.ts
-│   ├── products.ts
-│   └── orders.ts
-├── controllers/
-│   ├── authController.ts
-│   ├── productController.ts
-│   └── orderController.ts
+├── index.ts
+├── db/supabase.ts
+├── types/index.ts
+├── middlewares/auth.ts
 ├── services/
-│   ├── authService.ts
-│   ├── productService.ts
-│   └── orderService.ts
-└── types/
-    └── database.ts           # Tipos TypeScript del schema de Supabase
+│   ├── productService.ts    ← lógica principal con joins
+│   ├── catalogService.ts    ← categorías, subcategorías, colores
+│   └── authService.ts
+├── controllers/
+│   ├── productController.ts
+│   ├── catalogController.ts
+│   └── authController.ts
+└── routes/
+    ├── products.ts
+    ├── catalog.ts
+    └── auth.ts
 ```
-
----
-
-## Instalación
-
-```bash
-# 1. Instalar dependencias
-npm install
-
-# 2. Configurar variables de entorno
-cp .env.example .env
-# Editá .env con tus credenciales de Supabase
-
-# 3. Crear las tablas en Supabase
-# Abrí el SQL Editor en tu proyecto Supabase y ejecutá:
-# supabase_schema.sql
-
-# 4. Modo desarrollo (hot-reload)
-npm run dev
-
-# 5. Build para producción
-npm run build
-npm start
-```
-
----
-
-## Configuración de Supabase
-
-### 1. Crear proyecto
-Entrá a [supabase.com](https://supabase.com) y creá un proyecto nuevo.
-
-### 2. Obtener credenciales
-En **Settings → API**:
-- `Project URL` → `SUPABASE_URL`
-- `service_role` key → `SUPABASE_SERVICE_ROLE_KEY`  
-  ⚠️ Esta key tiene permisos de admin. Nunca la expongas en el frontend.
-
-### 3. Ejecutar el schema
-En **SQL Editor**, pegá y ejecutá el contenido de `supabase_schema.sql`.
-Esto crea las tablas, índices, RLS policies y datos de prueba.
-
-### 4. Crear usuario admin
-En **SQL Editor**:
-```sql
-update profiles
-set role = 'admin'
-where email = 'tu-email@ejemplo.com';
-```
-
----
-
-## Variables de entorno
-
-```env
-PORT=3000
-NODE_ENV=development
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
-JWT_SECRET=un-secreto-muy-largo-y-aleatorio
-JWT_EXPIRES_IN=7d
-CORS_ORIGIN=http://localhost:5173
-```
-
----
-
-## Endpoints
-
-### Auth
-
-| Método | Ruta | Acceso | Descripción |
-|---|---|---|---|
-| POST | `/v1/auth/register` | Público | Registrar usuario |
-| POST | `/v1/auth/login` | Público | Iniciar sesión |
-| GET | `/v1/auth/me` | Auth | Perfil del usuario |
-| POST | `/v1/auth/logout` | Auth | Cerrar sesión |
-
-### Productos
-
-| Método | Ruta | Acceso | Descripción |
-|---|---|---|---|
-| GET | `/v1/products` | Público | Listar con filtros |
-| GET | `/v1/products/featured` | Público | Productos destacados |
-| GET | `/v1/products/:slug` | Público | Detalle por slug |
-| POST | `/v1/products` | Admin | Crear producto |
-| PATCH | `/v1/products/:id` | Admin | Actualizar producto |
-| DELETE | `/v1/products/:id` | Admin | Eliminar producto |
-
-**Query params de listado:**
-```
-?category=shoes
-&gender=men
-&minPrice=100&maxPrice=500
-&search=runner
-&sortBy=price_asc          # featured | price_asc | price_desc | name_asc | rating
-&page=1&perPage=9
-```
-
-### Órdenes
-
-| Método | Ruta | Acceso | Descripción |
-|---|---|---|---|
-| GET | `/v1/orders` | Auth | Mis órdenes (admin ve todas) |
-| GET | `/v1/orders/:id` | Auth | Detalle de orden |
-| POST | `/v1/orders` | Auth | Crear orden |
-| PATCH | `/v1/orders/:id/status` | Admin | Actualizar estado |
-
----
-
-## Conectar el frontend Vue
-
-En el frontend, cambiá en `src/api/client.ts`:
-
-```typescript
-const USE_MOCK = false   // ← apagar mock
-const BASE_URL = 'http://localhost:3000/v1'  // ← URL del backend
-```
-
-El backend ya devuelve exactamente la misma forma de datos que espera el frontend.
-
----
-
-## Health check
-
-```bash
-curl http://localhost:3000/health
-# {"success":true,"message":"API funcionando correctamente.","env":"development"}
-```
-
----
-
-## Seguridad implementada
-
-- **Helmet** – Headers HTTP seguros
-- **CORS** configurable por variable de entorno
-- **Rate limiting** – 200 req/15min global, 10 req/15min en `/auth`
-- **JWT** con expiración configurable
-- **Zod** – Validación de todos los bodies
-- **Row Level Security** en Supabase – los usuarios solo acceden a sus propios datos
-- **Service Role Key** solo en el backend – nunca expuesta al cliente

@@ -1,22 +1,16 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '../types/database'
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const url = process.env.SUPABASE_URL
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'Faltan variables de entorno: SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY son obligatorias.',
-  )
+if (!url || !key) {
+  throw new Error('Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en las variables de entorno.')
 }
 
 /**
- * Cliente Supabase con service-role key.
- * Omite Row Level Security — úsalo solo en el backend.
+ * Cliente con service-role key → omite RLS.
+ * Usar SOLO en el backend, nunca en el frontend.
  */
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
+export const supabase = createClient(url, key, {
+  auth: { persistSession: false, autoRefreshToken: false },
 })

@@ -2,125 +2,114 @@ import type { Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { productService } from '../services/productService'
 
-// ─── Schemas de validación ────────────────────────────────────────────────────
-const colorSchema = z.object({
-  name: z.string().min(1),
-  hex:  z.string().regex(/^#[0-9a-fA-F]{3,6}$/, 'Hex inválido'),
+// ─── Schemas ──────────────────────────────────────────────────────────────────
+const varianteSchema = z.object({
+  talle:    z.string().optional(),
+  color_id: z.string().uuid('color_id debe ser un UUID').optional(),
 })
 
-const productSchema = z.object({
-  name:          z.string().min(2, 'Nombre muy corto'),
-  price:         z.number().positive('El precio debe ser positivo'),
-  original_price: z.number().positive().optional().nullable(),
-  image:         z.string().url('URL de imagen inválida'),
-  images:        z.array(z.string().url()).default([]),
-  rating:        z.number().min(0).max(5).default(0),
-  review_count:  z.number().int().min(0).default(0),
-  category:      z.string().min(1),
-  gender:        z.enum(['men', 'women', 'unisex']),
-  sizes:         z.array(z.string()).min(1, 'Se requiere al menos un talle'),
-  colors:        z.array(colorSchema).min(1, 'Se requiere al menos un color'),
-  description:   z.string().min(10, 'Descripción muy corta'),
-  featured:      z.boolean().default(false),
-  in_stock:      z.boolean().default(true),
-  tags:          z.array(z.string()).default([]),
+const productoSchema = z.object({
+  codigo:          z.string().min(1, 'El código es obligatorio'),
+  nombre:          z.string().min(2, 'El nombre es demasiado corto'),
+  descripcion:     z.string().optional(),
+  precio:          z.number().positive('El precio debe ser positivo'),
+  precio_anterior: z.number().positive().optional().nullable(),
+  subcategoria_id: z.string().uuid().optional().nullable(),
+  activo:          z.boolean().optional(),
+  destacado:       z.boolean().optional(),
+  // Relaciones que se manejan en cascada
+  imagenesUrls:    z.array(z.string().url('URL de imagen inválida')).optional(),
+  talles:          z.array(z.string().min(1)).optional(),
+  variantes:       z.array(varianteSchema).optional(),
 })
 
-// ─── Controllers ──────────────────────────────────────────────────────────────
+// ─── productController ────────────────────────────────────────────────────────
 export const productController = {
 
-  // GET /products
+  // GET /v1/products
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const filters = {
-        category:  req.query.category  as string | undefined,
-        gender:    req.query.gender    as string | undefined,
-        search:    req.query.search    as string | undefined,
-        sortBy:    req.query.sortBy    as string | undefined,
-        minPrice:  req.query.minPrice  ? Number(req.query.minPrice)  : undefined,
-        maxPrice:  req.query.maxPrice  ? Number(req.query.maxPrice)  : undefined,
-        page:      req.query.page      ? Number(req.query.page)      : 1,
-        perPage:   req.query.perPage   ? Number(req.query.perPage)   : 9,
+        categoria:      req.query.categoria     as string | undefined,
+        subcategoria:   req.query.subcategoria  as string | undefined,
+        search:         req.query.search        as string | undefined,
+        sortBy:         req.query.sortBy        as string | undefined,
+        minPrice:       req.query.minPrice  ? Number(req.query.minPrice)  : undefined,
+        maxPrice:       req.query.maxPrice  ? Number(req.query.maxPrice)  : undefined,
+        soloDestacados: req.query.destacados === 'true',
+        soloActivos:    req.query.activos !== 'false',  // default true
+        page:           req.query.page    ? Number(req.query.page)    : 1,
+        perPage:        req.query.perPage ? Number(req.query.perPage) : 9,
       }
 
       const result = await productService.list(filters)
       res.json({ success: true, ...result })
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   },
 
-  // GET /products/featured
-  async featured(req: Request, res: Response, next: NextFunction) {
+  // GET /v1/products/destacados
+  async destacados(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await productService.getFeatured()
+      const data = await productService.getDestacados()
       res.json({ success: true, data })
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   },
 
-  // GET /products/:slug
-  async getBySlug(req: Request, res: Response, next: NextFunction) {
+  // GET /v1/products/:id
+  async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await productService.getBySlug(req.params.slug)
+      const data = await productService.getById(req.params.id)
       res.json({ success: true, data })
-    } catch (err) {
-      next(err)
-    }
+    } catch (err) { next(err) }
   },
 
-  // POST /products  (admin)
+  // GET /v1/products/codigo/:codigo
+  async getByCodigo(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await productService.getByCodigo(req.params.codigo)
+      res.json({ success: true, data })
+    } catch (err) { next(err) }
+  },
+
+  // POST /v1/products  [admin]
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = productSchema.safeParse(req.body)
+      const parsed = productoSchema.safeParse(req.body)
       if (!parsed.success) {
         res.status(400).json({ success: false, message: parsed.error.errors[0]?.message })
         return
       }
-
       const data = await productService.create(parsed.data)
-      res.status(201).json({ success: true, data, message: 'Producto creado correctamente.' })
-    } catch (err) {
-      next(err)
-    }
+      res.status(201).json({ success: true, data, message: 'Producto creado.' })
+    } catch (err) { next(err) }
   },
 
-  // PATCH /products/:id  (admin)
+  // PATCH /v1/products/:id  [admin]
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = Number(req.params.id)
-      if (isNaN(id)) {
-        res.status(400).json({ success: false, message: 'ID inválido.' })
-        return
-      }
-
-      const parsed = productSchema.partial().safeParse(req.body)
+      const parsed = productoSchema.partial().safeParse(req.body)
       if (!parsed.success) {
         res.status(400).json({ success: false, message: parsed.error.errors[0]?.message })
         return
       }
-
-      const data = await productService.update(id, parsed.data)
-      res.json({ success: true, data, message: 'Producto actualizado correctamente.' })
-    } catch (err) {
-      next(err)
-    }
+      const data = await productService.update(req.params.id, parsed.data)
+      res.json({ success: true, data, message: 'Producto actualizado.' })
+    } catch (err) { next(err) }
   },
 
-  // DELETE /products/:id  (admin)
+  // DELETE /v1/products/:id  [admin]  → soft delete (activo = false)
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = Number(req.params.id)
-      if (isNaN(id)) {
-        res.status(400).json({ success: false, message: 'ID inválido.' })
-        return
-      }
+      await productService.remove(req.params.id)
+      res.json({ success: true, message: 'Producto desactivado.' })
+    } catch (err) { next(err) }
+  },
 
-      await productService.remove(id)
-      res.json({ success: true, message: 'Producto eliminado correctamente.' })
-    } catch (err) {
-      next(err)
-    }
+  // DELETE /v1/products/:id/hard  [admin]  → borrado físico
+  async hardDelete(req: Request, res: Response, next: NextFunction) {
+    try {
+      await productService.hardDelete(req.params.id)
+      res.json({ success: true, message: 'Producto eliminado permanentemente.' })
+    } catch (err) { next(err) }
   },
 }

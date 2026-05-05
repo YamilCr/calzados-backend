@@ -5,13 +5,15 @@ import { requireAuth, requireAdmin } from '../middlewares/auth'
 const router = Router()
 
 // ── Públicas ────────────────────────────────────────────────────────────────
-router.get('/',          productController.list)      // GET  /products
-router.get('/featured',  productController.featured)  // GET  /products/featured
-router.get('/:slug',     productController.getBySlug) // GET  /products/:slug
+router.get('/',                  productController.list)         // GET /products
+router.get('/destacados',        productController.destacados)   // GET /products/destacados
+router.get('/codigo/:codigo',    productController.getByCodigo)  // GET /products/codigo/ABC123
+router.get('/:id',               productController.getById)      // GET /products/:uuid
 
-// ── Protegidas (admin) ──────────────────────────────────────────────────────
-router.post('/',        requireAuth, requireAdmin, productController.create)  // POST   /products
-router.patch('/:id',   requireAuth, requireAdmin, productController.update)  // PATCH  /products/:id
-router.delete('/:id',  requireAuth, requireAdmin, productController.remove)  // DELETE /products/:id
+// ── Admin ───────────────────────────────────────────────────────────────────
+router.post('/',                requireAuth, productController.create)
+router.patch('/:id',            requireAuth, productController.update)
+router.delete('/:id',           requireAuth, productController.remove)      // soft
+router.delete('/:id/hard',      requireAuth, productController.hardDelete)  // físico
 
 export default router

@@ -1,20 +1,70 @@
 import slugify from 'slugify'
 import { supabase } from '../db/supabase'
-import type { ProductInsert, ProductRow, ProductUpdate } from '../types/database'
+import { httpError } from '../middlewares/auth'
+import type { ProductoApi, ProductoCompleto, ProductoInsert, ProductoUpdate } from '../types'
 
-// ─── Filtros ──────────────────────────────────────────────────────────────────
+// ─── Filtros del listado ──────────────────────────────────────────────────────
 export interface ProductFilters {
-  category?: string
-  gender?: string
+  categoria?: string        // nombre de categoría
+  subcategoria?: string     // nombre de subcategoría
+  search?: string           // busca en nombre y descripción
   minPrice?: number
   maxPrice?: number
-  search?: string
-  sortBy?: 'featured' | 'price_asc' | 'price_desc' | 'name_asc' | 'rating'
+  sortBy?: 'precio_asc' | 'precio_desc' | 'nombre_asc' | 'destacado'
+  soloDestacados?: boolean
+  soloActivos?: boolean     // default true
   page?: number
   perPage?: number
 }
 
-// ─── ProductService ───────────────────────────────────────────────────────────
+// ─── Mapper: ProductoCompleto → ProductoApi (shape para el frontend) ──────────
+function toApi(p: ProductoCompleto): ProductoApi {
+  const imagenes = (p.imagenes ?? []).map((i) => i.url)
+  const sizes    = [...new Set((p.talles ?? []).map((t) => t.talle))]
+  const colors   = (p.variantes ?? [])
+    .filter((v) => v.color)
+    .map((v) => ({ name: v.color!.nombre, hex: v.color!.codigo_hex ?? '#000000' }))
+    // deduplicar por nombre
+    .filter((c, idx, arr) => arr.findIndex((x) => x.name === c.name) === idx)
+
+  const subcategoriaNombre = p.subcategoria?.nombre ?? ''
+  const categoriaNombre    = p.subcategoria?.categoria?.nombre ?? ''
+
+  return {
+    id:            p.id,
+    codigo:        p.codigo,
+    name:          p.nombre,
+    price:         Number(p.precio),
+    originalPrice: p.precio_anterior ? Number(p.precio_anterior) : undefined,
+    image:         imagenes[0] ?? '',
+    images:        imagenes,
+    category:      categoriaNombre,
+    subcategory:   subcategoriaNombre,
+    sizes,
+    colors,
+    description:   p.descripcion ?? '',
+    featured:      p.destacado,
+    inStock:       p.activo,
+    slug:          slugify(`${p.nombre}-${p.codigo}`, { lower: true, strict: true }),
+  }
+}
+
+// ─── Query base con todos los joins ──────────────────────────────────────────
+const SELECT_FULL = `
+  *,
+  subcategoria:subcategorias (
+    id, nombre,
+    categoria:categorias ( id, nombre )
+  ),
+  imagenes ( id, url ),
+  talles ( id, talle ),
+  variantes (
+    id, talle, created_at,
+    color:colores ( id, nombre, codigo_hex )
+  )
+`
+
+// ─── productService ───────────────────────────────────────────────────────────
 export const productService = {
 
   // ── Listar con filtros y paginación ─────────────────────────────────────────
@@ -24,26 +74,34 @@ export const productService = {
     const from    = (page - 1) * perPage
     const to      = from + perPage - 1
 
-    let query = supabase.from('products').select('*', { count: 'exact' })
+    let query = supabase
+      .from('productos')
+      .select(SELECT_FULL, { count: 'exact' })
 
-    if (filters.category) query = query.eq('category', filters.category)
-    if (filters.gender)   query = query.in('gender', [filters.gender, 'unisex'])
-    if (filters.minPrice !== undefined) query = query.gte('price', filters.minPrice)
-    if (filters.maxPrice !== undefined) query = query.lte('price', filters.maxPrice)
+    // Filtro activo (default: solo activos)
+    if (filters.soloActivos !== false) query = query.eq('activo', true)
+
+    // Destacados
+    if (filters.soloDestacados) query = query.eq('destacado', true)
+
+    // Precio
+    if (filters.minPrice !== undefined) query = query.gte('precio', filters.minPrice)
+    if (filters.maxPrice !== undefined) query = query.lte('precio', filters.maxPrice)
+
+    // Búsqueda en nombre/descripción
     if (filters.search) {
       query = query.or(
-        `name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`,
+        `nombre.ilike.%${filters.search}%,descripcion.ilike.%${filters.search}%`,
       )
     }
 
     // Ordenamiento
     switch (filters.sortBy) {
-      case 'price_asc':  query = query.order('price',  { ascending: true });  break
-      case 'price_desc': query = query.order('price',  { ascending: false }); break
-      case 'name_asc':   query = query.order('name',   { ascending: true });  break
-      case 'rating':     query = query.order('rating', { ascending: false }); break
-      default:
-        query = query.order('featured', { ascending: false }).order('created_at', { ascending: false })
+      case 'precio_asc':  query = query.order('precio', { ascending: true });  break
+      case 'precio_desc': query = query.order('precio', { ascending: false }); break
+      case 'nombre_asc':  query = query.order('nombre', { ascending: true });  break
+      default:            query = query.order('destacado', { ascending: false })
+                                       .order('created_at',  { ascending: false })
     }
 
     query = query.range(from, to)
@@ -51,95 +109,179 @@ export const productService = {
     const { data, error, count } = await query
     if (error) throw new Error(error.message)
 
+    // Filtrar por nombre de categoría/subcategoría (no se puede filtrar en un join directamente)
+    let items = (data ?? []) as unknown as ProductoCompleto[]
+
+    if (filters.categoria) {
+      const cat = filters.categoria.toLowerCase()
+      items = items.filter((p) =>
+        p.subcategoria?.categoria?.nombre.toLowerCase() === cat,
+      )
+    }
+    if (filters.subcategoria) {
+      const sub = filters.subcategoria.toLowerCase()
+      items = items.filter((p) =>
+        p.subcategoria?.nombre.toLowerCase() === sub,
+      )
+    }
+
     const total      = count ?? 0
     const totalPages = Math.ceil(total / perPage)
 
-    return { data: data ?? [], total, page, perPage, totalPages }
-  },
-
-  // ── Obtener por slug ─────────────────────────────────────────────────────────
-  async getBySlug(slug: string): Promise<ProductRow> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('slug', slug)
-      .single()
-
-    if (error || !data) throw Object.assign(new Error('Producto no encontrado.'), { statusCode: 404 })
-    return data
+    return { data: items.map(toApi), total, page, perPage, totalPages }
   },
 
   // ── Obtener por ID ───────────────────────────────────────────────────────────
-  async getById(id: number): Promise<ProductRow> {
+  async getById(id: string): Promise<ProductoApi> {
     const { data, error } = await supabase
-      .from('products')
-      .select('*')
+      .from('productos')
+      .select(SELECT_FULL)
       .eq('id', id)
       .single()
 
-    if (error || !data) throw Object.assign(new Error('Producto no encontrado.'), { statusCode: 404 })
-    return data
+    if (error || !data) throw httpError('Producto no encontrado.', 404)
+    return toApi(data as unknown as ProductoCompleto)
+  },
+
+  // ── Obtener por código ───────────────────────────────────────────────────────
+  async getByCodigo(codigo: string): Promise<ProductoApi> {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(SELECT_FULL)
+      .eq('codigo', codigo)
+      .single()
+
+    if (error || !data) throw httpError('Producto no encontrado.', 404)
+    return toApi(data as unknown as ProductoCompleto)
   },
 
   // ── Destacados ───────────────────────────────────────────────────────────────
-  async getFeatured(): Promise<ProductRow[]> {
+  async getDestacados(): Promise<ProductoApi[]> {
     const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('featured', true)
+      .from('productos')
+      .select(SELECT_FULL)
+      .eq('activo', true)
+      .eq('destacado', true)
       .order('created_at', { ascending: false })
       .limit(8)
 
     if (error) throw new Error(error.message)
-    return data ?? []
+    return ((data ?? []) as unknown as ProductoCompleto[]).map(toApi)
   },
 
-  // ── Crear ────────────────────────────────────────────────────────────────────
-  async create(payload: Omit<ProductInsert, 'slug'>): Promise<ProductRow> {
-    const slug = slugify(payload.name, { lower: true, strict: true })
+  // ── Crear producto (con imágenes, talles y variantes) ────────────────────────
+  async create(payload: ProductoInsert & {
+    imagenesUrls?: string[]
+    talles?: string[]
+    variantes?: Array<{ talle?: string; color_id?: string }>
+  }): Promise<ProductoApi> {
 
-    // Verificar slug único
-    const { data: existing } = await supabase
-      .from('products')
-      .select('id')
-      .eq('slug', slug)
-      .maybeSingle()
+    // 1. Insertar producto base
+    const { imagenesUrls, talles, variantes, ...productoData } = payload
 
-    const finalSlug = existing
-      ? `${slug}-${Date.now()}`
-      : slug
-
-    const { data, error } = await supabase
-      .from('products')
-      .insert({ ...payload, slug: finalSlug })
+    const { data: producto, error } = await supabase
+      .from('productos')
+      .insert(productoData)
       .select()
       .single()
 
-    if (error) throw new Error(error.message)
-    return data
-  },
-
-  // ── Actualizar ───────────────────────────────────────────────────────────────
-  async update(id: number, payload: ProductUpdate): Promise<ProductRow> {
-    // Si cambia el nombre, regenerar slug
-    if (payload.name) {
-      payload.slug = slugify(payload.name, { lower: true, strict: true })
+    if (error) {
+      if (error.code === '23505') throw httpError('El código de producto ya existe.', 409)
+      throw new Error(error.message)
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .update(payload)
-      .eq('id', id)
-      .select()
-      .single()
+    const productoId = producto.id
 
-    if (error || !data) throw Object.assign(new Error('Producto no encontrado.'), { statusCode: 404 })
-    return data
+    // 2. Imágenes
+    if (imagenesUrls?.length) {
+      const imgs = imagenesUrls.map((url) => ({ producto_id: productoId, url }))
+      const { error: imgErr } = await supabase.from('imagenes').insert(imgs)
+      if (imgErr) throw new Error(imgErr.message)
+    }
+
+    // 3. Talles
+    if (talles?.length) {
+      const t = talles.map((talle) => ({ producto_id: productoId, talle }))
+      const { error: talleErr } = await supabase.from('talles').insert(t)
+      if (talleErr) throw new Error(talleErr.message)
+    }
+
+    // 4. Variantes (talle + color)
+    if (variantes?.length) {
+      const v = variantes.map((va) => ({ ...va, producto_id: productoId }))
+      const { error: varErr } = await supabase.from('variantes').insert(v)
+      if (varErr) throw new Error(varErr.message)
+    }
+
+    return this.getById(productoId)
   },
 
-  // ── Eliminar ─────────────────────────────────────────────────────────────────
-  async remove(id: number): Promise<void> {
-    const { error } = await supabase.from('products').delete().eq('id', id)
+  // ── Actualizar producto ──────────────────────────────────────────────────────
+  async update(id: string, payload: ProductoUpdate & {
+    imagenesUrls?: string[]      // reemplaza todas las imágenes
+    talles?: string[]            // reemplaza todos los talles
+    variantes?: Array<{ talle?: string; color_id?: string }>  // reemplaza todas
+  }): Promise<ProductoApi> {
+
+    const { imagenesUrls, talles, variantes, ...productoData } = payload
+
+    // 1. Actualizar campos del producto
+    if (Object.keys(productoData).length > 0) {
+      const { error } = await supabase
+        .from('productos')
+        .update(productoData)
+        .eq('id', id)
+
+      if (error) throw new Error(error.message)
+    }
+
+    // 2. Reemplazar imágenes si vienen en el payload
+    if (imagenesUrls !== undefined) {
+      await supabase.from('imagenes').delete().eq('producto_id', id)
+      if (imagenesUrls.length) {
+        const imgs = imagenesUrls.map((url) => ({ producto_id: id, url }))
+        const { error } = await supabase.from('imagenes').insert(imgs)
+        if (error) throw new Error(error.message)
+      }
+    }
+
+    // 3. Reemplazar talles si vienen en el payload
+    if (talles !== undefined) {
+      await supabase.from('talles').delete().eq('producto_id', id)
+      if (talles.length) {
+        const t = talles.map((talle) => ({ producto_id: id, talle }))
+        const { error } = await supabase.from('talles').insert(t)
+        if (error) throw new Error(error.message)
+      }
+    }
+
+    // 4. Reemplazar variantes si vienen en el payload
+    if (variantes !== undefined) {
+      await supabase.from('variantes').delete().eq('producto_id', id)
+      if (variantes.length) {
+        const v = variantes.map((va) => ({ ...va, producto_id: id }))
+        const { error } = await supabase.from('variantes').insert(v)
+        if (error) throw new Error(error.message)
+      }
+    }
+
+    return this.getById(id)
+  },
+
+  // ── Eliminar (soft delete → activo = false) ──────────────────────────────────
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('productos')
+      .update({ activo: false })
+      .eq('id', id)
+
+    if (error) throw new Error(error.message)
+  },
+
+  // ── Eliminar permanente (solo admin) ─────────────────────────────────────────
+  async hardDelete(id: string): Promise<void> {
+    // Supabase borra en cascade: imagenes, talles, variantes
+    const { error } = await supabase.from('productos').delete().eq('id', id)
     if (error) throw new Error(error.message)
   },
 }
