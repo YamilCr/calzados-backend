@@ -7,6 +7,7 @@ import { rateLimit } from 'express-rate-limit'
 import authRoutes    from './routes/auth'
 import productRoutes from './routes/products'
 import catalogRoutes from './routes/catalog'
+import uploadRoutes  from './routes/upload'  
 import { errorHandler, notFound } from './middlewares/auth'
 
 const app  = express()
@@ -40,6 +41,14 @@ const authLimiter = rateLimit({
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
 
+// ── home ───────────────────────────────────────────────────────────────────
+app.get('/', (_req, res) => {
+  res.json({
+    success: true,
+    message: 'Bienvenido a la API de Calzados.',
+  })
+})
+
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.json({
@@ -54,7 +63,7 @@ app.get('/health', (_req, res) => {
 app.use('/v1/auth',     authLimiter, authRoutes)
 app.use('/v1/products', productRoutes)
 app.use('/v1/catalog',  catalogRoutes)
-// app.use('/v1/categories',  catalogRoutes)
+app.use('/v1/upload',   uploadRoutes)   
 
 // ── 404 y errores ────────────────────────────────────────────────────────────
 app.use(notFound)

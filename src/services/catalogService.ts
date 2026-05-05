@@ -9,8 +9,6 @@ export const categoriaService = {
       .from('categorias')
       .select(`*, subcategorias ( id, nombre )`)
       .order('nombre')
-    console.log('categorias data:', data)   // ← agregar
-    console.log('categorias error:', error) // ← agregar
     if (error) throw new Error(error.message)
     return data ?? []
   },
