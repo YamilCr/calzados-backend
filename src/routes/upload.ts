@@ -35,10 +35,14 @@ router.post('/imagen', upload.single('imagen'), async (req: Request, res: Respon
       .from('productos')
       .upload(path, req.file.buffer, {
         contentType: req.file.mimetype,
-        upsert: false,
+        upsert: true,
       })
 
-    if (uploadError) throw new Error(uploadError.message)
+      if (uploadError) {
+        console.error('Supabase upload error:', uploadError)
+        throw new Error(uploadError.message)
+      }
+    // if (uploadError) throw new Error(uploadError.message)
 
     // Obtener URL pública
     const { data } = supabase.storage.from('productos').getPublicUrl(path)

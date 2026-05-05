@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "reset": "rm -rf node_modules package-lock.json && npm cache clean --force && npm install"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
