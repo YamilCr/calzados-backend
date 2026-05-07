@@ -44,6 +44,7 @@ function toApi(p: ProductoCompleto): ProductoApi {
     colors,
     description:   p.descripcion ?? '',
     featured:      p.destacado,
+    inCarrusel:    p.en_carrusel, // <-- falta esto
     inStock:       p.activo,
     slug:          slugify(`${p.nombre}-${p.codigo}`, { lower: true, strict: true }),
   }

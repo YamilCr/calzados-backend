@@ -43,7 +43,7 @@ export const productController = {
         perPage:        req.query.perPage ? Number(req.query.perPage) : 9,
       }
 
-      const result = await productService.list(filters)
+      const result = await productService.list(filters as any) // el service espera ProductFilters, pero el req.query tiene tipos más sueltos
       res.json({ success: true, ...result })
     } catch (err) { next(err) }
   },
@@ -88,7 +88,7 @@ export const productController = {
         res.status(400).json({ success: false, message: parsed.error.errors[0]?.message })
         return
       }
-      const data = await productService.create(parsed.data)
+      const data = await productService.create(parsed.data as any) // el service espera ProductoInsert, pero el schema tiene campos extra para imágenes/talles/variantes
       res.status(201).json({ success: true, data, message: 'Producto creado.' })
     } catch (err) { next(err) }
   },
