@@ -13,7 +13,8 @@ const productoSchema = z.object({
   nombre:          z.string().min(2, 'El nombre es demasiado corto'),
   descripcion:     z.string().optional(),
   precio:          z.number().positive('El precio debe ser positivo'),
-  precio_anterior: z.number().positive().optional().nullable(),
+  
+  precio_anterior: z.preprocess((val) => val === '' ? undefined : val,z.number().positive().optional().nullable()),
   subcategoria_id: z.string().uuid().optional().nullable(),
   activo:          z.boolean().optional(),
   destacado:       z.boolean().optional(),
