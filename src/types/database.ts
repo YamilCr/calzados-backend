@@ -56,6 +56,7 @@ export interface ProductRow {
   featured: boolean
   in_stock: boolean
   tags: string[]
+  en_carrusel: boolean
   created_at: string
   updated_at: string
 }

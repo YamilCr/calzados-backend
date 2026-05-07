@@ -73,6 +73,7 @@ create table if not exists products (
   featured       boolean      not null default false,
   in_stock       boolean      not null default true,
   tags           text[]       not null default '{}',
+  en_carrusel    boolean      not null default false,
   created_at     timestamptz  not null default now(),
   updated_at     timestamptz  not null default now()
 );
@@ -83,6 +84,7 @@ create index if not exists products_gender_idx    on products(gender);
 create index if not exists products_featured_idx  on products(featured);
 create index if not exists products_in_stock_idx  on products(in_stock);
 create index if not exists products_slug_idx      on products(slug);
+create index if not exists products_en_carrusel_idx on products(en_carrusel);
 -- Búsqueda full-text
 create index if not exists products_search_idx    on products using gin(to_tsvector('spanish', name || ' ' || description));
 

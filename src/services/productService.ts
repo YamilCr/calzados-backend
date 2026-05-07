@@ -169,6 +169,20 @@ export const productService = {
     return ((data ?? []) as unknown as ProductoCompleto[]).map(toApi)
   },
 
+  // ── Carrusel ──────────────────────────────────────────────────────────────────
+  async getCarrusel(): Promise<ProductoApi[]> {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(SELECT_FULL)
+      .eq('activo', true)
+      .eq('en_carrusel', true)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (error) throw new Error(error.message)
+    return ((data ?? []) as unknown as ProductoCompleto[]).map(toApi)
+  },
+
   // ── Crear producto (con imágenes, talles y variantes) ────────────────────────
   async create(payload: ProductoInsert & {
     imagenesUrls?: string[]

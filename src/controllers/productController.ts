@@ -17,6 +17,7 @@ const productoSchema = z.object({
   subcategoria_id: z.string().uuid().optional().nullable(),
   activo:          z.boolean().optional(),
   destacado:       z.boolean().optional(),
+  en_carrusel:     z.boolean().optional(),
   // Relaciones que se manejan en cascada
   imagenesUrls:    z.array(z.string().url('URL de imagen inválida')).optional(),
   talles:          z.array(z.string().min(1)).optional(),
@@ -51,6 +52,14 @@ export const productController = {
   async destacados(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await productService.getDestacados()
+      res.json({ success: true, data })
+    } catch (err) { next(err) }
+  },
+
+  // GET /v1/products/carrusel
+  async carrusel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await productService.getCarrusel()
       res.json({ success: true, data })
     } catch (err) { next(err) }
   },
