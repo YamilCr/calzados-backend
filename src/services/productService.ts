@@ -80,7 +80,7 @@ export const productService = {
       .select(SELECT_FULL, { count: 'exact' })
 
     // Filtro activo (default: solo activos)
-    if (filters.soloActivos !== false) query = query.eq('activo', true)
+    // if (filters.soloActivos !== false) query = query.eq('activo', true)
 
     // Destacados
     if (filters.soloDestacados) query = query.eq('destacado', true)
