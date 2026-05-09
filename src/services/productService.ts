@@ -44,6 +44,7 @@ function toApi(p: ProductoCompleto): ProductoApi {
     colors,
     description:   p.descripcion ?? '',
     featured:      p.destacado,
+    inCarrusel:    p.en_carrusel, // <-- falta esto
     inStock:       p.activo,
     slug:          slugify(`${p.nombre}-${p.codigo}`, { lower: true, strict: true }),
   }
@@ -74,12 +75,54 @@ export const productService = {
     const from    = (page - 1) * perPage
     const to      = from + perPage - 1
 
+    // ── Paso 1: resolver IDs de subcategorías que coincidan con los filtros ──
+    // Necesario para filtrar en la query principal y que el count sea correcto.
+    // El filtro en JS post-query hacía que el count fuera siempre el total general.
+    let subcategoriaIds: string[] | null = null
+
+    if (filters.categoria || filters.subcategoria) {
+      const { data: subs, error: subErr } = await supabase
+        .from('subcategorias')
+        .select('id, nombre, categoria:categorias(id, nombre)')
+
+      if (subErr) throw new Error(subErr.message)
+
+      let filtered = (subs ?? []) as Array<{
+        id: string
+        nombre: string
+        categoria: { id: string; nombre: string } | null
+      }>
+
+      if (filters.categoria) {
+        const cat = filters.categoria.toLowerCase()
+        filtered = filtered.filter((s) => s.categoria?.nombre.toLowerCase() === cat)
+      }
+
+      if (filters.subcategoria) {
+        const sub = filters.subcategoria.toLowerCase()
+        filtered = filtered.filter((s) => s.nombre.toLowerCase() === sub)
+      }
+
+      subcategoriaIds = filtered.map((s) => s.id)
+
+      // Si no hay subcategorías que coincidan, devolver vacío directamente
+      if (subcategoriaIds.length === 0) {
+        return { data: [], total: 0, page, perPage, totalPages: 0 }
+      }
+    }
+
+    // ── Paso 2: query principal ───────────────────────────────────────────────
     let query = supabase
       .from('productos')
       .select(SELECT_FULL, { count: 'exact' })
 
+    // Filtrar por subcategoria_id en BD (count correcto)
+    if (subcategoriaIds !== null) {
+      query = query.in('subcategoria_id', subcategoriaIds)
+    }
+
     // Filtro activo (default: solo activos)
-    if (filters.soloActivos !== false) query = query.eq('activo', true)
+    // if (filters.soloActivos !== false) query = query.eq('activo', true)
 
     // Destacados
     if (filters.soloDestacados) query = query.eq('destacado', true)
@@ -109,22 +152,7 @@ export const productService = {
     const { data, error, count } = await query
     if (error) throw new Error(error.message)
 
-    // Filtrar por nombre de categoría/subcategoría (no se puede filtrar en un join directamente)
-    let items = (data ?? []) as unknown as ProductoCompleto[]
-
-    if (filters.categoria) {
-      const cat = filters.categoria.toLowerCase()
-      items = items.filter((p) =>
-        p.subcategoria?.categoria?.nombre.toLowerCase() === cat,
-      )
-    }
-    if (filters.subcategoria) {
-      const sub = filters.subcategoria.toLowerCase()
-      items = items.filter((p) =>
-        p.subcategoria?.nombre.toLowerCase() === sub,
-      )
-    }
-
+    const items      = (data ?? []) as unknown as ProductoCompleto[]
     const total      = count ?? 0
     const totalPages = Math.ceil(total / perPage)
 
@@ -164,6 +192,20 @@ export const productService = {
       .eq('destacado', true)
       .order('created_at', { ascending: false })
       .limit(8)
+
+    if (error) throw new Error(error.message)
+    return ((data ?? []) as unknown as ProductoCompleto[]).map(toApi)
+  },
+
+  // ── Carrusel ──────────────────────────────────────────────────────────────────
+  async getCarrusel(): Promise<ProductoApi[]> {
+    const { data, error } = await supabase
+      .from('productos')
+      .select(SELECT_FULL)
+      .eq('activo', true)
+      .eq('en_carrusel', true)
+      .order('created_at', { ascending: false })
+      .limit(10)
 
     if (error) throw new Error(error.message)
     return ((data ?? []) as unknown as ProductoCompleto[]).map(toApi)

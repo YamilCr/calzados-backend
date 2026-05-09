@@ -13,10 +13,12 @@ const productoSchema = z.object({
   nombre:          z.string().min(2, 'El nombre es demasiado corto'),
   descripcion:     z.string().optional(),
   precio:          z.number().positive('El precio debe ser positivo'),
-  precio_anterior: z.number().positive().optional().nullable(),
+  
+  precio_anterior: z.preprocess((val) => val === '' ? undefined : val,z.number().positive().optional().nullable()),
   subcategoria_id: z.string().uuid().optional().nullable(),
   activo:          z.boolean().optional(),
   destacado:       z.boolean().optional(),
+  en_carrusel:     z.boolean().optional(),
   // Relaciones que se manejan en cascada
   imagenesUrls:    z.array(z.string().url('URL de imagen inválida')).optional(),
   talles:          z.array(z.string().min(1)).optional(),
@@ -42,7 +44,7 @@ export const productController = {
         perPage:        req.query.perPage ? Number(req.query.perPage) : 9,
       }
 
-      const result = await productService.list(filters)
+      const result = await productService.list(filters as any) // el service espera ProductFilters, pero el req.query tiene tipos más sueltos
       res.json({ success: true, ...result })
     } catch (err) { next(err) }
   },
@@ -51,6 +53,14 @@ export const productController = {
   async destacados(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await productService.getDestacados()
+      res.json({ success: true, data })
+    } catch (err) { next(err) }
+  },
+
+  // GET /v1/products/carrusel
+  async carrusel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await productService.getCarrusel()
       res.json({ success: true, data })
     } catch (err) { next(err) }
   },
@@ -79,7 +89,7 @@ export const productController = {
         res.status(400).json({ success: false, message: parsed.error.errors[0]?.message })
         return
       }
-      const data = await productService.create(parsed.data)
+      const data = await productService.create(parsed.data as any) // el service espera ProductoInsert, pero el schema tiene campos extra para imágenes/talles/variantes
       res.status(201).json({ success: true, data, message: 'Producto creado.' })
     } catch (err) { next(err) }
   },

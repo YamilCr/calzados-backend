@@ -34,6 +34,7 @@ export interface ProductoRow {
   subcategoria_id: string | null
   activo: boolean
   destacado: boolean
+  en_carrusel: boolean
   created_at: string
 }
 
@@ -87,6 +88,7 @@ export interface ProductoApi {
   colors: Array<{ name: string; hex: string }>   // desde variantes → colores
   description: string
   featured: boolean      // = destacado
+  en_carrusel: boolean    // = en_carrusel
   inStock: boolean       // = activo (proxy)
   slug: string           // generado del nombre+codigo
 }

@@ -7,6 +7,7 @@ const router = Router()
 // ── Públicas ────────────────────────────────────────────────────────────────
 router.get('/',                  productController.list)         // GET /products
 router.get('/destacados',        productController.destacados)   // GET /products/destacados
+router.get('/carrusel',          productController.carrusel)     // GET /products/carrusel
 router.get('/codigo/:codigo',    productController.getByCodigo)  // GET /products/codigo/ABC123
 router.get('/:id',               productController.getById)      // GET /products/:uuid
 

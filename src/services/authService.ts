@@ -1,12 +1,32 @@
+import { createClient } from '@supabase/supabase-js'
 import jwt from 'jsonwebtoken'
 import { supabase } from '../db/supabase'
 import { httpError } from '../middlewares/auth'
 import type { JwtPayload } from '../types'
 
+/**
+ * Crea un cliente temporal con la ANON KEY solo para autenticar al usuario.
+ * Se descarta al terminar la función — nunca contamina el cliente global
+ * de service role que usa el resto del backend (imágenes, productos, etc.).
+ */
+function createUserClient() {
+  const url = process.env.SUPABASE_URL
+  const anonKey = process.env.SUPABASE_ANON_KEY
+
+  if (!url || !anonKey) {
+    throw new Error('Faltan SUPABASE_URL o SUPABASE_ANON_KEY en las variables de entorno.')
+  }
+
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+}
+
 export const authService = {
 
   async register(name: string, email: string, password: string) {
-    // Crear en Supabase Auth
+    // Crear usuario en Supabase Auth usando el cliente admin (service role)
+    // admin.createUser NO crea sesión — no contamina el cliente global ✅
     const { data, error } = await supabase.auth.admin.createUser({
       email,
       password,
@@ -21,7 +41,6 @@ export const authService = {
       throw new Error(error.message)
     }
 
-    // El trigger de Supabase crea el registro en profiles automáticamente
     const token = makeToken({ sub: data.user.id, email, role: 'customer' })
 
     return {
@@ -31,11 +50,17 @@ export const authService = {
   },
 
   async login(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    // ✅ CORRECCIÓN CLAVE: usamos un cliente TEMPORAL con ANON KEY.
+    // Nunca usar supabase.auth.signInWithPassword() con el cliente global
+    // de service role, porque inyecta una sesión de usuario en ese cliente
+    // y rompe las URLs públicas de Storage (imágenes) para el resto del proceso.
+    const userClient = createUserClient()
+    const { data, error } = await userClient.auth.signInWithPassword({ email, password })
+
+    // El userClient se descarta al salir de esta función — sin efectos secundarios.
 
     if (error || !data.user) throw httpError('Credenciales inválidas.', 401)
 
-    // Leer metadata para el rol (lo guardamos en user_metadata al asignar admin)
     const role = (data.user.user_metadata?.role as 'customer' | 'admin') ?? 'customer'
     const name = (data.user.user_metadata?.name as string) ?? email.split('@')[0]
 
@@ -48,6 +73,7 @@ export const authService = {
   },
 
   async me(userId: string) {
+    // admin.getUserById tampoco crea sesión — está bien con el cliente global ✅
     const { data, error } = await supabase.auth.admin.getUserById(userId)
     if (error || !data.user) throw httpError('Usuario no encontrado.', 404)
 
@@ -61,6 +87,8 @@ export const authService = {
   },
 
   async logout(userId: string) {
+    // admin.signOut invalida la sesión del usuario en Supabase sin tocar
+    // el estado del cliente global — correcto ✅
     await supabase.auth.admin.signOut(userId)
   },
 }
