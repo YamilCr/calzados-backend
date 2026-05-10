@@ -16,9 +16,23 @@ const PORT = Number(process.env.PORT) || 3000
 // ── Seguridad ────────────────────────────────────────────────────────────────
 app.use(helmet())
 app.use(cors({
-  origin:      process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+  origin: (origin, callback) => {
+    const allowed = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+      .split(',')
+      .map(o => o.trim())
+
+    if (!origin) return callback(null, true)
+
+    const isAllowed =
+      allowed.includes(origin) ||
+      origin.endsWith('.ngrok-free.app') ||
+      origin.endsWith('.ngrok.io')
+
+    if (isAllowed) callback(null, true)
+    else callback(new Error(`CORS bloqueado: ${origin}`))
+  },
   credentials: true,
-  methods:     ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 }))
 
 // Rate limiting global
@@ -69,11 +83,14 @@ app.use('/v1/upload',   uploadRoutes)
 app.use(notFound)
 app.use(errorHandler)
 
-app.listen(PORT, () => {
-  console.log(`\n🚀  API corriendo en http://localhost:${PORT}`)
-  console.log(`    Entorno : ${process.env.NODE_ENV ?? 'development'}`)
-  console.log(`    CORS    : ${process.env.CORS_ORIGIN ?? 'http://localhost:5173'}`)
-  console.log(`    Supabase: ${process.env.SUPABASE_URL}\n`)
-})
+// ─── Solo escuchar en local, Vercel ignora esto ───────────────────────────
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`\n🚀  API corriendo en http://localhost:${PORT}`)
+    console.log(`    Entorno : ${process.env.NODE_ENV ?? 'development'}`)
+    console.log(`    CORS    : ${process.env.CORS_ORIGIN ?? 'http://localhost:5173'}`)
+    console.log(`    Supabase: ${process.env.SUPABASE_URL}\n`)
+  })
+}
 
 export default app
