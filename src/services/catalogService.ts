@@ -5,14 +5,19 @@ import { httpError } from '../middlewares/auth'
 export const categoriaService = {
 
   async list() {
-    const { data, error } = await supabase
-      .from('categorias')
-      .select(`*, subcategorias ( id, nombre )`)
-      .order('nombre')
-    if (error) throw new Error(error.message)
-    return data ?? []
-  },
+  const { data, error } = await supabase
+    .from('categorias')
+    .select(`*, subcategorias ( id, nombre, orden )`) // 👈 incluir orden en subcategorías
+    .order('orden', { ascending: true })             // 👈 ordenar categorías por orden
+  if (error) throw new Error(error.message)
 
+  // opcional: ordenar subcategorías en memoria también
+  return (data ?? []).map(c => ({
+    ...c,
+      subcategorias: (c.subcategorias ?? []).sort((a, b) => a.orden - b.orden)
+    }))
+  },
+    
   async getById(id: string) {
     const { data, error } = await supabase
       .from('categorias')
@@ -57,17 +62,17 @@ export const categoriaService = {
 export const subcategoriaService = {
 
   async list(categoriaId?: string) {
-    let query = supabase
-      .from('subcategorias')
-      .select(`*, categoria:categorias ( id, nombre )`)
-      .order('nombre')
+      let query = supabase
+        .from('subcategorias')
+        .select(`*, categoria:categorias ( id, nombre )`)
+        .order('orden', { ascending: true })   // 👈 ahora usa el campo orden
 
-    if (categoriaId) query = query.eq('categoria_id', categoriaId)
+      if (categoriaId) query = query.eq('categoria_id', categoriaId)
 
-    const { data, error } = await query
-    if (error) throw new Error(error.message)
-    return data ?? []
-  },
+      const { data, error } = await query
+      if (error) throw new Error(error.message)
+      return data ?? []
+    },
 
   async getById(id: string) {
     const { data, error } = await supabase
