@@ -8,6 +8,7 @@ const colorSchema     = z.object({ nombre: z.string().min(1), codigo_hex: z.stri
 const subSchema       = z.object({ nombre: z.string().min(1), categoria_id: z.string().uuid() })
 const subUpdateSchema = subSchema.partial()
 
+
 // ── categoriaController ──────────────────────────────────────────────────────
 export const categoriaController = {
   async list(_req: Request, res: Response, next: NextFunction) {
