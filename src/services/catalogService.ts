@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase'
 import { httpError } from '../middlewares/auth'
 
+
 // ─── categoriaService ─────────────────────────────────────────────────────────
 export const categoriaService = {
 
